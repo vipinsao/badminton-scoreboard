@@ -608,9 +608,69 @@
 
     // Undo action
     function undoAction() {
+        // Stop any running timers before undo
+        const prevState = GameState.getState();
+        const wasBreakActive = prevState.breakActive && prevState.breakActive.active;
+
         if (GameState.undo()) {
+            const newState = GameState.getState();
+
+            // Handle break timer state after undo
+            if (wasBreakActive && (!newState.breakActive || !newState.breakActive.active)) {
+                // Undo reverted a break start - stop the timer
+                if (breakTimerInterval) {
+                    clearInterval(breakTimerInterval);
+                    breakTimerInterval = null;
+                }
+                elements.breakOverlay.classList.remove('active');
+            } else if (!wasBreakActive && newState.breakActive && newState.breakActive.active) {
+                // Undo restored a break state - restart the timer
+                startBreakTimer(newState.breakActive.timeRemaining);
+            }
+
+            // Handle set timer state after undo
+            if (newState.matchStatus === 'in_progress' && newState.setTimer && newState.setTimer.running) {
+                // Ensure set timer is running
+                if (!setTimerInterval) {
+                    startSetTimer();
+                }
+            } else if (newState.matchStatus !== 'in_progress') {
+                stopSetTimer();
+            }
+
             addHistoryEntry('Action undone');
         }
+    }
+
+    // Start break timer with specific time
+    function startBreakTimer(timeRemaining) {
+        if (breakTimerInterval) {
+            clearInterval(breakTimerInterval);
+        }
+        elements.breakOverlay.classList.add('active');
+        elements.breakTimer.textContent = formatTime(timeRemaining);
+
+        breakTimerInterval = setInterval(() => {
+            const state = GameState.getState();
+            if (!state.breakActive.active) {
+                clearInterval(breakTimerInterval);
+                breakTimerInterval = null;
+                elements.breakOverlay.classList.remove('active');
+                return;
+            }
+
+            const newTime = state.breakActive.timeRemaining - 1;
+            if (newTime <= 0) {
+                GameState.endBreak();
+                clearInterval(breakTimerInterval);
+                breakTimerInterval = null;
+                elements.breakOverlay.classList.remove('active');
+                addHistoryEntry('Break ended');
+            } else {
+                GameState.updateBreakTimer(newTime);
+                elements.breakTimer.textContent = formatTime(newTime);
+            }
+        }, 1000);
     }
 
     // Confirm reset match
@@ -673,7 +733,7 @@
         });
     }
 
-    // Render history - optimized with DocumentFragment
+    // Render history - optimized with DocumentFragment (XSS safe)
     function renderHistory() {
         const fragment = document.createDocumentFragment();
         const len = historyEntries.length;
@@ -681,7 +741,17 @@
             const entry = historyEntries[i];
             const li = document.createElement('li');
             li.className = 'history-item';
-            li.innerHTML = `<span class="history-action">${entry.action}</span><span class="history-time">${entry.time}</span>`;
+
+            const actionSpan = document.createElement('span');
+            actionSpan.className = 'history-action';
+            actionSpan.textContent = entry.action; // Safe - no HTML injection
+
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'history-time';
+            timeSpan.textContent = entry.time;
+
+            li.appendChild(actionSpan);
+            li.appendChild(timeSpan);
             fragment.appendChild(li);
         }
         elements.historyList.innerHTML = '';
@@ -714,6 +784,16 @@
         elements.matchFinalScore.textContent = `Sets: ${state.setsWon.team1} - ${state.setsWon.team2}`;
         elements.matchOverOverlay.classList.add('active');
     }
+
+    // Cleanup on page unload
+    function cleanup() {
+        if (breakTimerInterval) clearInterval(breakTimerInterval);
+        if (setTimerInterval) clearInterval(setTimerInterval);
+        if (historyRenderPending) cancelAnimationFrame(historyRenderPending);
+    }
+
+    window.addEventListener('beforeunload', cleanup);
+    window.addEventListener('unload', cleanup);
 
     // Initialize on DOM ready
     if (document.readyState === 'loading') {

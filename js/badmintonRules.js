@@ -123,11 +123,13 @@ const BadmintonRules = (function() {
 
     /**
      * Check if ends should be changed (3rd set at 11 points)
+     * Uses >= 11 to handle edge cases where 11 might be skipped
      */
     function shouldChangeEnds(currentSet, team1Score, team2Score, alreadyChanged) {
         if (currentSet === 3 && !alreadyChanged) {
             const leadingScore = Math.max(team1Score, team2Score);
-            if (leadingScore === 11) {
+            // Check >= 11 to handle any edge cases
+            if (leadingScore >= 11) {
                 return true;
             }
         }

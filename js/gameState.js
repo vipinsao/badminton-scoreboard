@@ -5,8 +5,34 @@
  */
 
 const GameState = (function() {
-    // BroadcastChannel for real-time sync between tabs
-    const channel = new BroadcastChannel('smasher-scoreboard');
+    // BroadcastChannel for real-time sync between tabs (with fallback for Safari < 15.4)
+    let channel = null;
+    let useLocalStorageFallback = false;
+
+    try {
+        channel = new BroadcastChannel('smasher-scoreboard');
+    } catch (e) {
+        console.warn('BroadcastChannel not supported, using localStorage fallback');
+        useLocalStorageFallback = true;
+    }
+
+    // LocalStorage fallback for browsers without BroadcastChannel
+    const STORAGE_EVENT_KEY = 'smasher_scoreboard_sync';
+    if (useLocalStorageFallback) {
+        window.addEventListener('storage', (event) => {
+            if (event.key === STORAGE_EVENT_KEY && event.newValue) {
+                try {
+                    const data = JSON.parse(event.newValue);
+                    if (data.state) {
+                        Object.assign(state, data.state);
+                        notifyListeners(data.type || 'STATE_UPDATE');
+                    }
+                } catch (e) {
+                    console.warn('Failed to parse storage event:', e);
+                }
+            }
+        });
+    }
 
     // State change listeners
     const listeners = [];
@@ -135,18 +161,43 @@ const GameState = (function() {
         }
     }
 
+    // Validate state structure
+    function validateState(parsed) {
+        if (!parsed || typeof parsed !== 'object') return false;
+        // Check required fields exist
+        if (!parsed.teams || !parsed.sets || !parsed.setsWon) return false;
+        if (!Array.isArray(parsed.sets) || parsed.sets.length !== 3) return false;
+        if (typeof parsed.currentSet !== 'number' || parsed.currentSet < 1 || parsed.currentSet > 3) return false;
+        return true;
+    }
+
     // Load state from localStorage
     function loadFromStorage() {
         try {
             const saved = localStorage.getItem('smasher_scoreboard_state');
             if (saved) {
                 const parsed = JSON.parse(saved);
+                // Validate structure before merging
+                if (!validateState(parsed)) {
+                    console.warn('Invalid state in localStorage, using defaults');
+                    localStorage.removeItem('smasher_scoreboard_state');
+                    return false;
+                }
                 // Merge with initial state to ensure all fields exist
                 state = { ...getInitialState(), ...parsed };
+                // Ensure nested objects are properly merged
+                state.teams = { ...getInitialState().teams, ...parsed.teams };
+                state.setsWon = { ...getInitialState().setsWon, ...parsed.setsWon };
+                state.breakActive = { ...getInitialState().breakActive, ...parsed.breakActive };
+                state.config = { ...getInitialState().config, ...(parsed.config || {}) };
                 return true;
             }
         } catch (e) {
             console.warn('Failed to load from localStorage:', e);
+            // Clear corrupted data
+            try {
+                localStorage.removeItem('smasher_scoreboard_state');
+            } catch (clearError) { /* ignore */ }
         }
         return false;
     }
@@ -158,11 +209,18 @@ const GameState = (function() {
         if (pendingBroadcast) return; // Already scheduled
         pendingBroadcast = setTimeout(() => {
             pendingBroadcast = null;
-            channel.postMessage({
+            const message = {
                 type: lastBroadcastAction,
                 state: cloneStateShallow(state),
                 timestamp: Date.now()
-            });
+            };
+            if (channel) {
+                channel.postMessage(message);
+            } else if (useLocalStorageFallback) {
+                try {
+                    localStorage.setItem(STORAGE_EVENT_KEY, JSON.stringify(message));
+                } catch (e) { /* ignore */ }
+            }
         }, BROADCAST_DELAY);
     }
 
@@ -172,11 +230,18 @@ const GameState = (function() {
             clearTimeout(pendingBroadcast);
             pendingBroadcast = null;
         }
-        channel.postMessage({
+        const message = {
             type: action,
             state: cloneStateShallow(state),
             timestamp: Date.now()
-        });
+        };
+        if (channel) {
+            channel.postMessage(message);
+        } else if (useLocalStorageFallback) {
+            try {
+                localStorage.setItem(STORAGE_EVENT_KEY, JSON.stringify(message));
+            } catch (e) { /* ignore */ }
+        }
     }
 
     // Throttled notify listeners using requestAnimationFrame
@@ -273,15 +338,29 @@ const GameState = (function() {
     }
 
     // Listen for messages from other tabs
-    channel.onmessage = (event) => {
-        const { type, state: newState, timestamp } = event.data;
+    if (channel) {
+        channel.onmessage = (event) => {
+            const { type, state: newState, timestamp } = event.data;
 
-        if (newState) {
-            state = { ...state, ...newState };
-            saveToStorage();
-            notifyListeners(type);
-        }
-    };
+            if (newState) {
+                state = { ...state, ...newState };
+                saveToStorage();
+                notifyListeners(type);
+            }
+        };
+    }
+
+    // Cleanup function for page unload
+    function cleanup() {
+        if (pendingBroadcast) clearTimeout(pendingBroadcast);
+        if (pendingSave) clearTimeout(pendingSave);
+        if (pendingNotify) cancelAnimationFrame(pendingNotify);
+        if (channel) channel.close();
+    }
+
+    // Add cleanup on page unload
+    window.addEventListener('beforeunload', cleanup);
+    window.addEventListener('unload', cleanup);
 
     // Public API
     return {

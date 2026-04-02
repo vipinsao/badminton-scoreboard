@@ -461,7 +461,8 @@
         }
     }
 
-    // Fireworks burst effect
+    // Fireworks burst effect - optimized
+    let fireworksInterval = null;
     function startFireworks() {
         let fireworksContainer = document.getElementById('fireworksContainer');
         if (!fireworksContainer) {
@@ -470,60 +471,72 @@
             fireworksContainer.className = 'fireworks-container';
             document.body.appendChild(fireworksContainer);
         }
+        fireworksContainer.innerHTML = '';
 
-        // Create multiple bursts
+        // Create initial bursts - reduced count
         const burstPositions = [
             { x: 20, y: 30 }, { x: 80, y: 25 }, { x: 50, y: 20 },
-            { x: 30, y: 40 }, { x: 70, y: 35 }, { x: 15, y: 50 },
-            { x: 85, y: 45 }, { x: 40, y: 60 }, { x: 60, y: 55 }
+            { x: 30, y: 45 }, { x: 70, y: 40 }
         ];
 
         burstPositions.forEach((pos, index) => {
             setTimeout(() => {
-                createFireworkBurst(fireworksContainer, pos.x, pos.y);
-            }, index * 400);
+                if (fireworksContainer) {
+                    createFireworkBurst(fireworksContainer, pos.x, pos.y);
+                }
+            }, index * 500);
         });
 
-        // Continue bursting
+        // Continue bursting - reduced rate and stored for cleanup
         let burstCount = 0;
-        const burstInterval = setInterval(() => {
-            const randomX = Math.random() * 80 + 10;
-            const randomY = Math.random() * 40 + 10;
-            createFireworkBurst(fireworksContainer, randomX, randomY);
+        const maxBursts = 12; // Reduced from 20
+        fireworksInterval = setInterval(() => {
             burstCount++;
-            if (burstCount > 20) {
-                clearInterval(burstInterval);
+            if (burstCount >= maxBursts || !fireworksContainer) {
+                clearInterval(fireworksInterval);
+                fireworksInterval = null;
+                return;
             }
-        }, 600);
+            const randomX = Math.random() * 70 + 15;
+            const randomY = Math.random() * 35 + 15;
+            createFireworkBurst(fireworksContainer, randomX, randomY);
+        }, 700);
 
-        // Clean up after 12 seconds
+        // Clean up after 10 seconds
         setTimeout(() => {
+            if (fireworksInterval) {
+                clearInterval(fireworksInterval);
+                fireworksInterval = null;
+            }
             if (fireworksContainer) {
                 fireworksContainer.innerHTML = '';
             }
-        }, 12000);
+        }, 10000);
     }
 
     function createFireworkBurst(container, x, y) {
+        if (!container) return;
+
         const burst = document.createElement('div');
         burst.className = 'firework-burst';
         burst.style.left = `${x}%`;
         burst.style.top = `${y}%`;
 
-        const colors = ['#f39c12', '#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#ff6b6b', '#ffd93d', '#ffffff'];
-        const particleCount = 20;
+        const colors = ['#f39c12', '#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#ffd93d'];
+        const particleCount = 12; // Reduced from 20
 
         for (let i = 0; i < particleCount; i++) {
             const particle = document.createElement('div');
             particle.className = 'firework-particle';
             const angle = (i / particleCount) * 360;
-            const color = colors[Math.floor(Math.random() * colors.length)];
-            const distance = 80 + Math.random() * 60;
+            const color = colors[i % colors.length];
+            const distance = 60 + Math.random() * 40;
 
             particle.style.cssText = `
                 --angle: ${angle}deg;
                 --distance: ${distance}px;
                 --color: ${color};
+                will-change: transform, opacity;
             `;
             burst.appendChild(particle);
         }
@@ -533,12 +546,12 @@
         // Remove burst after animation
         setTimeout(() => {
             if (burst.parentNode) {
-                burst.parentNode.removeChild(burst);
+                burst.remove();
             }
-        }, 1500);
+        }, 1300);
     }
 
-    // Confetti celebration effect
+    // Confetti celebration effect - optimized for performance
     function startConfetti() {
         // Stop any existing confetti
         stopConfetti();
@@ -554,25 +567,33 @@
         confettiContainer.innerHTML = '';
 
         const colors = ['#f39c12', '#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#ffffff', '#ff6b6b', '#ffd93d'];
-        const shapes = ['square', 'circle', 'triangle'];
-        const particleCount = 150;
+        const shapes = ['square', 'circle'];
+        const particleCount = 80; // Reduced from 150 for better performance
 
-        // Create particles
+        // Create initial particles
         for (let i = 0; i < particleCount; i++) {
-            createConfettiParticle(confettiContainer, colors, shapes, i);
+            createConfettiParticle(confettiContainer, colors, shapes, i * 0.02);
         }
 
-        // Continue spawning particles
+        // Continue spawning particles at reduced rate
+        let spawnCount = 0;
+        const maxSpawns = 15; // Reduced iterations
         confettiInterval = setInterval(() => {
-            for (let i = 0; i < 10; i++) {
-                createConfettiParticle(confettiContainer, colors, shapes, Math.random() * 1000);
+            spawnCount++;
+            if (spawnCount >= maxSpawns) {
+                clearInterval(confettiInterval);
+                confettiInterval = null;
+                return;
             }
-        }, 500);
+            for (let i = 0; i < 5; i++) { // Reduced from 10
+                createConfettiParticle(confettiContainer, colors, shapes, 0);
+            }
+        }, 600); // Increased interval
 
-        // Stop after 10 seconds
+        // Stop after 8 seconds
         setTimeout(() => {
             stopConfetti();
-        }, 10000);
+        }, 8000);
     }
 
     function createConfettiParticle(container, colors, shapes, delay) {
@@ -581,10 +602,9 @@
 
         const color = colors[Math.floor(Math.random() * colors.length)];
         const shape = shapes[Math.floor(Math.random() * shapes.length)];
-        const size = Math.random() * 10 + 5;
+        const size = Math.random() * 8 + 4; // Slightly smaller
         const left = Math.random() * 100;
-        const animDuration = Math.random() * 3 + 2;
-        const animDelay = (delay % 100) / 100;
+        const animDuration = Math.random() * 2.5 + 2; // Slightly faster
 
         particle.style.cssText = `
             position: absolute;
@@ -593,34 +613,25 @@
             width: ${size}px;
             height: ${size}px;
             background-color: ${color};
-            animation: confettiFall ${animDuration}s ease-out ${animDelay}s forwards;
+            animation: confettiFall ${animDuration}s ease-out ${delay}s forwards;
             opacity: 0;
+            will-change: transform, opacity;
         `;
 
         if (shape === 'circle') {
             particle.style.borderRadius = '50%';
-        } else if (shape === 'triangle') {
-            particle.style.width = '0';
-            particle.style.height = '0';
-            particle.style.backgroundColor = 'transparent';
-            particle.style.borderLeft = `${size/2}px solid transparent`;
-            particle.style.borderRight = `${size/2}px solid transparent`;
-            particle.style.borderBottom = `${size}px solid ${color}`;
         }
 
         container.appendChild(particle);
         confettiParticles.push(particle);
 
-        // Remove particle after animation
+        // Remove particle after animation using single cleanup
+        const cleanupTime = (animDuration + delay) * 1000 + 200;
         setTimeout(() => {
             if (particle.parentNode) {
-                particle.parentNode.removeChild(particle);
+                particle.remove();
             }
-            const index = confettiParticles.indexOf(particle);
-            if (index > -1) {
-                confettiParticles.splice(index, 1);
-            }
-        }, (animDuration + animDelay) * 1000 + 100);
+        }, cleanupTime);
     }
 
     function stopConfetti() {
@@ -628,10 +639,14 @@
             clearInterval(confettiInterval);
             confettiInterval = null;
         }
+        if (fireworksInterval) {
+            clearInterval(fireworksInterval);
+            fireworksInterval = null;
+        }
         // Clean up particles
         confettiParticles.forEach(particle => {
             if (particle.parentNode) {
-                particle.parentNode.removeChild(particle);
+                particle.remove();
             }
         });
         confettiParticles = [];
@@ -648,6 +663,19 @@
             fireworksContainer.innerHTML = '';
         }
     }
+
+    // Cleanup on page unload
+    function cleanup() {
+        if (setTimerInterval) clearInterval(setTimerInterval);
+        if (setWonTimeout) clearTimeout(setWonTimeout);
+        if (endsChangedTimeout) clearTimeout(endsChangedTimeout);
+        if (team1AnimTimer) clearTimeout(team1AnimTimer);
+        if (team2AnimTimer) clearTimeout(team2AnimTimer);
+        stopConfetti();
+    }
+
+    window.addEventListener('beforeunload', cleanup);
+    window.addEventListener('unload', cleanup);
 
     // Show ends changed notification
     function showEndsChangedNotification() {
